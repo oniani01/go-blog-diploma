@@ -1,0 +1,14 @@
+
+
+services:
+  blog-api:
+    build: .
+    container_name: go-blog-api
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/root/data
+      - ./log.txt:/root/log.txt
+    env_file:
+      - .env
+    restart: unless-stopped
