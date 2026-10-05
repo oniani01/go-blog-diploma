@@ -33,3 +33,63 @@
     ├── go.mod                   # Зависимости Go
     ├── go.sum                   # Контрольные суммы зависимостей
     ── README.md                # Документация
+
+## Запуск
+
+### Локально
+
+```bash
+# Установить зависимости
+go mod download
+
+# Запустить сервер
+go run cmd/main.go
+
+Сервер запустится на http://localhost:8080
+
+### Через Docker
+
+```bash
+# Собрать и запустить
+docker-compose up --build
+
+# Остановить
+docker-compose down
+
+## API Эндпоинты
+
+| Метод | Эндпоинт | Описание | Требует Auth |
+|-------|----------|----------|--------------|
+| POST | `/register` | Регистрация пользователя | Нет |
+| POST | `/login` | Вход (возвращает JWT токен) | Нет |
+| POST | `/posts` | Создание поста | Да (Bearer) |
+| GET | `/posts` | Список всех постов | Нет |
+| GET | `/posts/{id}` | Получение поста по ID | Нет |
+| POST | `/posts/{id}/comments` | Добавление комментария | Да (Bearer) |
+| GET | `/posts/{id}/comments` | Комментарии к посту | Нет |
+| GET | `/health` | Проверка состояния сервиса | Нет |
+
+## Примеры запросов
+
+### Регистрация
+
+```bash
+curl -X POST http://localhost:8080/register -H "Content-Type: application/json" -d '{"username":"test","email":"test@test.com","password":"123456"}'
+
+### Вход
+
+```bash
+curl -X POST http://localhost:8080/login -H "Content-Type: application/json" -d '{"email":"test@test.com","password":"123456"}'
+
+### Создание поста
+
+```bash
+curl -X POST http://localhost:8080/posts -H "Content-Type: application/json" -H "Authorization: Bearer ВАШ_ТОКЕН" -d '{"title":"Мой пост","content":"Текст поста"}'
+
+## Технологии
+
+- Go 1.21+
+- JWT (github.com/golang-jwt/jwt/v5)
+- bcrypt (golang.org/x/crypto/bcrypt)
+- godotenv (github.com/joho/godotenv)
+- Docker & Docker Compose
