@@ -1,4 +1,4 @@
-# REST API для блог-платформы
+﻿# REST API для блог-платформы
 
 Дипломный проект для программы "Go-разработчик с нуля".
 
@@ -15,6 +15,7 @@
 - Полная контейнеризация через Docker
 
 ## Структура проекта
+
 go-blog-diploma/
 ├── cmd/
 │ └── main.go # Точка входа
@@ -32,6 +33,7 @@ go-blog-diploma/
 ├── go.mod # Зависимости Go
 ├── go.sum # Контрольные суммы зависимостей
 └── README.md # Документация
+
 ## Запуск
 
 ### Локально
@@ -43,13 +45,14 @@ go mod download
 # Запустить сервер
 go run cmd/main.go
 Сервер запустится на http://localhost:8080
-Через Docker
+### Через Docker
+```bash
 # Собрать и запустить
 docker-compose up --build
 
 # Остановить
 docker-compose down
-API Эндпоинты
+## API Эндпоинты
 Метод
 Эндпоинт
 Описание
@@ -86,23 +89,23 @@ GET
 /health
 Проверка состояния сервиса
 Нет
-Примеры запросов
-Регистрация
-bash
+## Примеры запросов
+### Регистрация
+```bash
 curl -X POST http://localhost:8080/register -H "Content-Type: application/json" -d '{"username":"test","email":"test@test.com","password":"123456"}'
-Вход
-bash
+### Вход
+```bash
 curl -X POST http://localhost:8080/login -H "Content-Type: application/json" -d '{"email":"test@test.com","password":"123456"}'
-Создание поста
-bash
+### Создание поста
+```bash
 curl -X POST http://localhost:8080/posts -H "Content-Type: application/json" -H "Authorization: Bearer ВАШ_ТОКЕН" -d '{"title":"Мой пост","content":"Текст поста"}'
-Получение всех постов
-bash
+### Получение всех постов
+```bash
 curl http://localhost:8080/posts
-Добавление комментария
-bash
+### Добавление комментария
+```bash
 curl -X POST http://localhost:8080/posts/1/comments -H "Content-Type: application/json" -H "Authorization: Bearer ВАШ_ТОКЕН" -d '{"text":"Отличный пост!"}'
-Технологии
+## Технологии
 Go 1.21+
 JWT (github.com/golang-jwt/jwt/v5)
 bcrypt (golang.org/x/crypto/bcrypt)
