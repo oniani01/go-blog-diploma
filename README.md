@@ -15,3 +15,21 @@
 - Полная контейнеризация через Docker
 
 ## Структура проекта
+
+    go-blog-diploma/
+    ├── cmd/
+    │   └── main.go              # Точка входа
+    ├── internal/
+    │   ├── models/models.go     # Структуры данных (User, Post, Comment)
+    │   ├── storage/storage.go   # Работа с JSON-файлами
+    │   ├── auth/auth.go         # JWT и хеширование паролей
+    │   ├── logger/logger.go     # Асинхронное логирование (горутина + канал)
+    │   └── handlers/handlers.go # HTTP-обработчики
+    ├── data/                    # Папка для JSON-файлов (создаётся автоматически)
+    ├── .env                     # Переменные окружения
+    ├── .gitignore               # Исключения для Git
+    ├── Dockerfile               # Docker образ
+    ├── docker-compose.yml       # Docker Compose
+    ├── go.mod                   # Зависимости Go
+    ├── go.sum                   # Контрольные суммы зависимостей
+    ── README.md                # Документация
