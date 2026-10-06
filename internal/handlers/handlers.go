@@ -18,6 +18,20 @@ type Handler struct {
 	Storage *storage.Storage
 }
 
+// respondJSON - хелпер для отправки JSON с правильным Content-Type
+func respondJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
+// respondError - хелпер для отправки ошибок в JSON формате
+func respondError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
 // getUserIDFromRequest - вспомогательная функция для проверки токена
 func (h *Handler) getUserIDFromRequest(r *http.Request) (int, error) {
 	authHeader := r.Header.Get("Authorization")
@@ -32,6 +46,22 @@ func (h *Handler) getUserIDFromRequest(r *http.Request) (int, error) {
 	return auth.ValidateToken(parts[1])
 }
 
+// isValidEmail - простая, но надежная валидация формата email
+func isValidEmail(email string) bool {
+	if len(email) < 3 || len(email) > 254 {
+		return false
+	}
+	atIdx := strings.Index(email, "@")
+	if atIdx < 1 || atIdx >= len(email)-3 {
+		return false
+	}
+	dotIdx := strings.LastIndex(email, ".")
+	if dotIdx < atIdx+2 || dotIdx >= len(email)-1 {
+		return false
+	}
+	return true
+}
+
 // Register обрабатывает POST /register
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -40,27 +70,41 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 
-	// Читаем JSON из тела запроса
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, `{"error": "Invalid JSON"}`, http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid JSON")
 		return
 	}
 
-	// Проверяем, нет ли уже такого пользователя
+	// Валидация входных данных (требование ревьюера)
+	if req.Username == "" || len(req.Username) < 3 {
+		respondError(w, http.StatusBadRequest, "Username must be at least 3 characters")
+		return
+	}
+	if !isValidEmail(req.Email) {
+		respondError(w, http.StatusBadRequest, "Invalid email format")
+		return
+	}
+	if len(req.Password) < 6 {
+		respondError(w, http.StatusBadRequest, "Password must be at least 6 characters")
+		return
+	}
+
 	if h.Storage.GetUserByEmail(req.Email) != nil {
-		http.Error(w, `{"error": "User already exists"}`, http.StatusConflict)
+		respondError(w, http.StatusConflict, "User already exists")
 		return
 	}
 
-	// Хешируем пароль
 	hashedPwd, _ := auth.HashPassword(req.Password)
 
-	// Создаем пользователя и сохраняем
-	user := models.User{Username: req.Username, Email: req.Email, Password: hashedPwd}
+	user := models.User{
+		Username:     req.Username,
+		Email:        req.Email,
+		PasswordHash: hashedPwd,  // ИСПРАВЛЕНО: сохраняем хеш в правильное поле
+		CreatedAt:    time.Now(), // ИСПРАВЛЕНО: добавляем время создания
+	}
 	h.Storage.CreateUser(user)
 
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "User registered"})
+	respondJSON(w, http.StatusCreated, map[string]string{"message": "User registered"})
 }
 
 // Login обрабатывает POST /login
@@ -69,26 +113,27 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
-
-	user := h.Storage.GetUserByEmail(req.Email)
-	// Если пользователя нет или пароль не совпадает
-	if user == nil || !auth.CheckPasswordHash(req.Password, user.Password) {
-		http.Error(w, `{"error": "Invalid credentials"}`, http.StatusUnauthorized)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid JSON")
 		return
 	}
 
-	// Генерируем токен
+	user := h.Storage.GetUserByEmail(req.Email)
+	// ИСПРАВЛЕНО: проверяем хеш в поле PasswordHash
+	if user == nil || !auth.CheckPasswordHash(req.Password, user.PasswordHash) {
+		respondError(w, http.StatusUnauthorized, "Invalid credentials")
+		return
+	}
+
 	token, _ := auth.GenerateToken(user.ID)
-	json.NewEncoder(w).Encode(map[string]string{"token": token})
+	respondJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
 // CreatePost обрабатывает POST /posts
 func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
-	// Проверяем авторизацию
 	userID, err := h.getUserIDFromRequest(r)
 	if err != nil {
-		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
@@ -97,7 +142,7 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		Content string `json:"content"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Title == "" || req.Content == "" {
-		http.Error(w, `{"error": "Invalid data"}`, http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid data")
 		return
 	}
 
@@ -107,52 +152,46 @@ func (h *Handler) CreatePost(w http.ResponseWriter, r *http.Request) {
 		Content:   req.Content,
 		CreatedAt: time.Now(),
 	}
-
-	// Сохраняем пост (метод вернет пост с присвоенным ID)
 	post = h.Storage.CreatePost(post)
 
-	// ОТПРАВЛЯЕМ СОБЫТИЕ В КАНАЛ ЛОГГЕРА (Требование диплома!)
 	logger.LogAction("user " + strconv.Itoa(userID) + " created post " + strconv.Itoa(post.ID))
 
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(post)
+	respondJSON(w, http.StatusCreated, post)
 }
 
 // GetPosts обрабатывает GET /posts
 func (h *Handler) GetPosts(w http.ResponseWriter, r *http.Request) {
 	posts := h.Storage.GetAllPosts()
-	// Если постов нет, вернем пустой массив, а не null
 	if posts == nil {
 		posts = []models.Post{}
 	}
-	json.NewEncoder(w).Encode(posts)
+	respondJSON(w, http.StatusOK, posts)
 }
 
 // GetPost обрабатывает GET /posts/{id}
 func (h *Handler) GetPost(w http.ResponseWriter, r *http.Request) {
-	// В Go 1.21+ параметры пути достаются через r.PathValue
 	idStr := r.PathValue("id")
 	id, _ := strconv.Atoi(idStr)
 
 	post := h.Storage.GetPostByID(id)
 	if post == nil {
-		http.Error(w, `{"error": "Not found"}`, http.StatusNotFound)
+		respondError(w, http.StatusNotFound, "Not found")
 		return
 	}
-	json.NewEncoder(w).Encode(post)
+	respondJSON(w, http.StatusOK, post)
 }
 
 // CreateComment обрабатывает POST /posts/{id}/comments
 func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	userID, err := h.getUserIDFromRequest(r)
 	if err != nil {
-		http.Error(w, `{"error": "Unauthorized"}`, http.StatusUnauthorized)
+		respondError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	postID, _ := strconv.Atoi(r.PathValue("id"))
 	if h.Storage.GetPostByID(postID) == nil {
-		http.Error(w, `{"error": "Post not found"}`, http.StatusNotFound)
+		respondError(w, http.StatusNotFound, "Post not found")
 		return
 	}
 
@@ -160,7 +199,7 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 		Text string `json:"text"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Text == "" {
-		http.Error(w, `{"error": "Invalid data"}`, http.StatusBadRequest)
+		respondError(w, http.StatusBadRequest, "Invalid data")
 		return
 	}
 
@@ -172,24 +211,29 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	}
 	comment = h.Storage.CreateComment(comment)
 
-	// ЛОГИРОВАНИЕ (Требование диплома!)
 	logger.LogAction("user " + strconv.Itoa(userID) + " created comment " + strconv.Itoa(comment.ID))
 
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(comment)
+	respondJSON(w, http.StatusCreated, comment)
 }
 
 // GetComments обрабатывает GET /posts/{id}/comments
 func (h *Handler) GetComments(w http.ResponseWriter, r *http.Request) {
 	postID, _ := strconv.Atoi(r.PathValue("id"))
+
+	// ИСПРАВЛЕНО: проверяем существование поста перед выдачей комментариев
+	if h.Storage.GetPostByID(postID) == nil {
+		respondError(w, http.StatusNotFound, "Post not found")
+		return
+	}
+
 	comments := h.Storage.GetCommentsByPostID(postID)
 	if comments == nil {
 		comments = []models.Comment{}
 	}
-	json.NewEncoder(w).Encode(comments)
+	respondJSON(w, http.StatusOK, comments)
 }
 
 // Health обрабатывает GET /health
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	respondJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

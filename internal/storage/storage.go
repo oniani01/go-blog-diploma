@@ -52,12 +52,12 @@ func (s *Storage) saveFile(filename string, v interface{}) {
 // --- Методы для работы с ПОЛЬЗОВАТЕЛЯМИ ---
 
 func (s *Storage) GetUserByEmail(email string) *models.User {
-	s.mu.RLock() // Блокируем только для чтения (быстрее)
+	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	for _, u := range s.users {
-		if u.Email == email {
-			return &u
+	for _, user := range s.users {
+		if user.Email == email {
+			return &user
 		}
 	}
 	return nil
