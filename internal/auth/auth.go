@@ -2,65 +2,66 @@ package auth
 
 import (
 	"errors"
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Секретный ключ для подписи токенов.
-// В реальном проекте его хранят в .env файле, но для простоты оставим здесь.
-var jwtSecret = []byte("my-super-secret-diploma-key-2024")
+// getJWTSecret читает секрет из переменной окружения
+func getJWTSecret() string {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return "default-secret-change-me"
+	}
+	return secret
+}
 
-// HashPassword превращает обычный пароль в зашифрованную строку
+// HashPassword хеширует пароль с помощью bcrypt (стоимость 10)
 func HashPassword(password string) (string, error) {
-	// 14 - это стоимость хеширования (чем больше, тем надежнее, но медленнее)
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 10)
 	return string(bytes), err
 }
 
-// CheckPasswordHash сравнивает введенный пароль с зашифрованным из базы
+// CheckPasswordHash сравнивает пароль с хешем
 func CheckPasswordHash(password, hash string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	return err == nil
 }
 
-// GenerateToken создает JWT токен для пользователя
+// GenerateToken создает JWT токен
 func GenerateToken(userID int) (string, error) {
-	// claims - это "полезная нагрузка" токена, то, что мы в него зашиваем
 	claims := jwt.MapClaims{
 		"user_id": userID,
-		"exp":     time.Now().Add(time.Hour * 24).Unix(), // Токен живет 24 часа
+		"exp":     time.Now().Add(24 * time.Hour).Unix(),
 	}
-
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	// Подписываем токен нашим секретным ключом
-	return token.SignedString(jwtSecret)
+	return token.SignedString([]byte(getJWTSecret()))
 }
 
-// ValidateToken проверяет токен и возвращает ID пользователя, если он настоящий
-func ValidateToken(tokenStr string) (int, error) {
-	// Разбираем токен
-	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
-		// Проверяем, что метод подписи правильный
+// ValidateToken проверяет токен и возвращает user_id
+func ValidateToken(tokenString string) (int, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
 		}
-		return jwtSecret, nil
+		return []byte(getJWTSecret()), nil
 	})
+	if err != nil {
+		return 0, err
+	}
 
-	if err != nil || !token.Valid {
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || !token.Valid {
 		return 0, errors.New("invalid token")
 	}
 
-	// Достаем user_id из токена
-	claims, ok := token.Claims.(jwt.MapClaims)
+	// Безопасное приведение типа с проверкой
+	userIDFloat, ok := claims["user_id"].(float64)
 	if !ok {
-		return 0, errors.New("invalid claims")
+		return 0, errors.New("invalid user_id in token")
 	}
 
-	// В JWT числа хранятся как float64, поэтому приводим к int
-	userID := int(claims["user_id"].(float64))
-	return userID, nil
+	return int(userIDFloat), nil
 }
